@@ -17,6 +17,11 @@ static const unsigned int SCALE = 20; //xvvv
 static const unsigned int UNREACHABLE_COST = ROW*COL + 1;
 static const unsigned char OBSTACLE_COST = 127;
 
+// Creating a shortcut for int, int pair type
+typedef pair<int, int> Pair;
+
+// Creating a shortcut for pair<int, pair<int, int>> type
+typedef pair<double, pair<int, int>> pPair;
 
 struct GridCell
 {
@@ -30,6 +35,15 @@ vector<vector<GridCell>> goalmap(ROW, vector<GridCell>(COL));
 vector<vector<int>> costmap(ROW, vector<int>(COL, 0));   
 
 
+// A Utility Function to check whether given cell (row, col)
+// is a valid cell or not.
+bool isValid(int row, int col)
+{
+    // Returns true if row number and column number
+    // is in range
+    return (row >= 0) && (row < ROW) && (col >= 0) && (col < COL);
+}
+
 void printGrid(vector<vector<GridCell>>& grid)
 {
     for (int i = 0; i < ROW; i++)
@@ -41,8 +55,9 @@ void printGrid(vector<vector<GridCell>>& grid)
             printf("|(%2d,%2d) %3d %s|", c.cy, c.cx, c.target_dist, (c.target_mark?"T":"F")); 
 
         }
-        cout << endl;
+        printf("\n");
     }
+    printf("\n\n");
 }
 
 
@@ -223,6 +238,44 @@ void computeTargetDistance(queue<GridCell*>& dist_queue, vector<vector<GridCell>
     
 }
 
+void setTargetCells(vector<vector<int>>& costmap, vector<vector<GridCell>>& grid, vector<Pair>& global_plan)
+{
+    bool started_path = false;
+    queue<GridCell*> path_dist_queue;
+    
+    // Adjust global plan for resolution, if needed
+    
+    for (unsigned int i = 0; i < global_plan.size(); i++)
+    {
+
+        int g_x = global_plan[i].second;
+        int g_y = global_plan[i].first;
+        /*
+        In the following if.. 
+        ** need to convert world to grid and check each point is explored
+        */
+
+        if(isValid(g_y, g_x))
+        {
+            GridCell& current = grid[g_y][g_x]; 
+            current.target_dist = 0;
+            current.target_mark = true;
+            path_dist_queue.push(&current);
+            started_path = true;
+        }
+        else if (started_path)
+        {
+            break;
+        }
+    }
+    if (!started_path)
+    {
+        return;
+    }
+
+    computeTargetDistance(path_dist_queue, grid, costmap);
+}
+
 
 
 int main()
@@ -233,24 +286,32 @@ int main()
     costmap[5][7] = OBSTACLE_COST;
     costmap[7][5] = OBSTACLE_COST;
     costmap[5][8] = OBSTACLE_COST;
-    costmap[8][5] = OBSTACLE_COST;
 
     initializeGrid(goalmap);
+    initializeGrid(pathmap);
 
+    //for goalmap
     int ix = 3, iy = 4;
-
     GridCell& c_cell = goalmap[iy][ix];
     c_cell.target_dist = 0;
     c_cell.target_mark = true;
 
     queue<GridCell*> goal_dist_queue;
-
     goal_dist_queue.push(&c_cell);
-
     computeTargetDistance(goal_dist_queue, goalmap, costmap);
 
     printGrid(goalmap);
     visualize(goalmap);
+
+    //for pathmap
+    vector<Pair> global_path;
+    global_path.push_back(make_pair(iy, ix));
+    global_path.push_back(make_pair(iy-1, ix+1));
+    global_path.push_back(make_pair(iy-2, ix+2));
+
+    setTargetCells(costmap, pathmap, global_path);
+    printGrid(pathmap);
+    visualize(pathmap);
 
     return 0;
 }
