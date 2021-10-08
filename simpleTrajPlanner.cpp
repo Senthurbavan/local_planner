@@ -94,7 +94,7 @@ void visualize(vector<vector<GridCell>>& grid)
             }
             else
             {
-                scaled_dist = (255.0/(12.0))*c.target_dist;
+                scaled_dist = (255.0/(17.0))*c.target_dist;
                 imgGrid[i][j][0] = (char)scaled_dist;
                 imgGrid[i][j][1] = 255;
                 imgGrid[i][j][2] = (char)scaled_dist;
@@ -247,14 +247,12 @@ void setTargetCells(vector<vector<int>>& costmap, vector<vector<GridCell>>& grid
     
     for (unsigned int i = 0; i < global_plan.size(); i++)
     {
-
         int g_x = global_plan[i].second;
         int g_y = global_plan[i].first;
         /*
         In the following if.. 
         ** need to convert world to grid and check each point is explored
         */
-
         if(isValid(g_y, g_x))
         {
             GridCell& current = grid[g_y][g_x]; 
@@ -276,6 +274,50 @@ void setTargetCells(vector<vector<int>>& costmap, vector<vector<GridCell>>& grid
     computeTargetDistance(path_dist_queue, grid, costmap);
 }
 
+void setLocalGoal(vector<vector<int>>& costmap, vector<vector<GridCell>>& grid, vector<Pair>& global_plan)
+{
+    int local_goal_x = -1;
+    int local_goal_y = -1;
+    bool started_path = false;
+    queue<GridCell*> path_dist_queue;
+        
+    // Adjust global plan for resolution, if needed
+    
+    for (unsigned int i = 0; i < global_plan.size(); i++)
+    {
+        int g_x = global_plan[i].second;
+        int g_y = global_plan[i].first;
+        /*
+        In the following if.. 
+        ** need to convert world to grid and check each point is explored
+        */
+        if(isValid(g_y, g_x))
+        {
+            local_goal_x = g_x;
+            local_goal_y = g_y;
+            started_path = true;
+        }
+        else if (started_path)
+        {
+            break;
+        }
+    }
+    if (!started_path)
+    {
+        return;
+    }
+
+    if(local_goal_x >= 0 && local_goal_y >= 0)
+    {
+        GridCell& current = grid[local_goal_y][local_goal_x];
+        current.target_dist = 0;
+        current.target_mark = true;
+        path_dist_queue.push(&current);
+    }
+
+    computeTargetDistance(path_dist_queue, grid, costmap);
+}
+
 
 
 int main()
@@ -290,28 +332,38 @@ int main()
     initializeGrid(goalmap);
     initializeGrid(pathmap);
 
-    //for goalmap
     int ix = 3, iy = 4;
-    GridCell& c_cell = goalmap[iy][ix];
-    c_cell.target_dist = 0;
-    c_cell.target_mark = true;
 
-    queue<GridCell*> goal_dist_queue;
-    goal_dist_queue.push(&c_cell);
-    computeTargetDistance(goal_dist_queue, goalmap, costmap);
+    // //for goalmap
+    // GridCell& c_cell = goalmap[iy][ix];
+    // c_cell.target_dist = 0;
+    // c_cell.target_mark = true;
 
-    printGrid(goalmap);
-    visualize(goalmap);
+    // queue<GridCell*> goal_dist_queue;
+    // goal_dist_queue.push(&c_cell);
+    // computeTargetDistance(goal_dist_queue, goalmap, costmap);
+
+    // printGrid(goalmap);
+    // visualize(goalmap);
 
     //for pathmap
     vector<Pair> global_path;
     global_path.push_back(make_pair(iy, ix));
     global_path.push_back(make_pair(iy-1, ix+1));
     global_path.push_back(make_pair(iy-2, ix+2));
+    global_path.push_back(make_pair(iy-3, ix+3));
+    global_path.push_back(make_pair(iy-4, ix+4));
+    global_path.push_back(make_pair(iy-5, ix+5));
 
     setTargetCells(costmap, pathmap, global_path);
     printGrid(pathmap);
     visualize(pathmap);
+
+    //for goalmap
+    setLocalGoal(costmap, goalmap, global_path);
+    printGrid(goalmap);
+    visualize(goalmap);
+
 
     return 0;
 }
