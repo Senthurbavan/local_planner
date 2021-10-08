@@ -8,6 +8,7 @@
 #include <opencv2/highgui.hpp>
 #include "opencv2/opencv.hpp"
 #include "trajectory.h"
+#include "line_iterator.h"
 
 using namespace cv;
 using namespace std;
@@ -29,6 +30,7 @@ double occdist_scale_ = 1.0;
 
 // Creating a shortcut for int, int pair type
 typedef pair<int, int> Pair;
+typedef pair<double, double> Dpair;
 
 // Creating a shortcut for pair<int, pair<int, int>> type
 typedef pair<double, pair<int, int>> pPair;
@@ -43,7 +45,7 @@ struct GridCell
 vector<vector<GridCell>> pathmap(ROW, vector<GridCell>(COL));
 vector<vector<GridCell>> goalmap(ROW, vector<GridCell>(COL));
 vector<vector<int>> costmap(ROW, vector<int>(COL, 0));
-local_planner::Trajectory *best_traj;
+vector<Dpair> footprint_;
 
 // A Utility Function to check whether given cell (row, col)
 // is a valid cell or not.
@@ -106,11 +108,145 @@ double computeNewThetaPosition(double thetai, double vth, double dt)
     return thetai + vth * dt;
 }
 
-//need to implement
+
+/*
+*
+*
+* Cost related functions start  
+*
+*
+*/
+
+
+double pointCost(int cx, int cy)
+{
+    int cost = costmap[cy][cx];
+    if (cost == OBSTACLE_COST)
+    {
+        return -1;
+    }
+    return cost;
+    
+}
+
+double lineCost(int cx0, int cx1, int cy0, int cy1)
+{
+    double line_cost = 0.0;
+    double point_cost = -1.0;
+    
+    for (local_planner::LineIterator line(cx0, cy0, cx1, cy1); line.isValid(); line.advance())
+    {
+        point_cost = pointCost(line.getX(), line.getY());
+
+        if (point_cost < 0)
+        {
+            return point_cost;
+        }
+
+        if (line_cost < point_cost)
+        {
+            line_cost = point_cost;
+        }
+        return line_cost;
+    }
+    
+    
+}
+
+// footprint in real coordiante aligned in robot pose, not in grid index
+double footprintCost1(double x_i, double y_i, double theta_i, vector<Dpair>& footprint)
+{
+    // returns:
+    //  -1 if footprint covers at least a lethal obstacle cell, or
+    //  -2 if footprint covers at least a no-information cell, or
+    //  -3 if footprint is [partially] outside of the map, or
+    //  a positive value for traversable space
+
+    int cell_x, cell_y;
+
+    //get the cell coord of the center point of the robot
+    if (!worldToMap(x_i, y_i, cell_x, cell_y))
+    {
+        return -3.0;
+    }
+
+    int x0, x1, y0, y1;
+    double line_cost = 0.0;
+    double footprint_cost = 0.0;
+
+    for (int i = 0; i < footprint.size() - 1; i++)
+    {
+        //get the cell coord of the first point
+        if (!worldToMap(footprint[i].second, footprint[i].first, x0, y0))
+        {
+            return -3.0;
+        }
+        //get the cell coord of the second point    
+        if (!worldToMap(footprint[i+1].second, footprint[i+1].first, x1, y1))
+        {
+            return -3.0;
+        }
+
+        line_cost = lineCost(x0, x1, y0, y1);
+        footprint_cost = max(line_cost, footprint_cost);
+
+        //if there is an obstacle that hits the line... we know that we can return false right away
+        if(line_cost < 0)
+        {
+            return line_cost;
+        }
+
+        //we also need to connect the first point in the footprint to the last point
+        //get the cell coord of the last point
+        if (!worldToMap(footprint.back().second, footprint.back().first, x0, y0))
+        {
+            return -3.0;
+        }
+        //get the cell coord of the first point    
+        if (!worldToMap(footprint.front().second, footprint.front().first, x1, y1))
+        {
+            return -3.0;
+        }
+
+        line_cost = lineCost(x0, x1, y0, y1);
+        footprint_cost = max(line_cost, footprint_cost);
+
+        //if there is an obstacle that hits the line... we know that we can return false right away
+        if(line_cost < 0)
+        {
+            return line_cost;
+        }
+
+        return footprint_cost;
+        
+    }
+    
+    
+}
+
+// x_i, y_i, theta_i are in world coordiante
 double footprintCost(double x_i, double y_i, double theta_i)
 {
-    return 0.0;
+    vector<Dpair> oriented_footprint;
+    for (int i = 0; i < footprint_.size(); i++)
+    {
+        Dpair new_pt;
+        new_pt.second = x_i + (footprint_[i].second*cos(theta_i) - footprint_[i].first*sin(theta_i));
+        new_pt.first =  y_i + (footprint_[i].second*sin(theta_i) + footprint_[i].first*cos(theta_i));
+        oriented_footprint.push_back(new_pt);
+    }
+    return footprintCost1(x_i, y_i, theta_i, oriented_footprint);
 }
+
+
+
+/*
+*
+*
+* Cost related functions end  
+*
+*
+*/
 
 // print the grid in the terminal
 void printGrid(vector<vector<GridCell>> &grid)
