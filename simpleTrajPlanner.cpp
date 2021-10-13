@@ -3,10 +3,11 @@
 #include <iostream>
 
 #include <opencv2/core.hpp>
-#include "opencv2/imgproc/imgproc.hpp"
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/highgui.hpp>
+#include "opencv2/imgproc/imgproc.hpp"
 #include "opencv2/opencv.hpp"
+
 #include "trajectory.h"
 #include "line_iterator.h"
 
@@ -19,7 +20,7 @@ static const unsigned int SCALE = 20; //xvvv
 static const unsigned int UNREACHABLE_COST = ROW * COL + 1;
 static const unsigned char OBSTACLE_COST = 127;
 
-double resolution_;
+double resolution_ = 0.01;
 double sim_time_ = 2.0;
 double sim_granularity_ = 0.1;
 double angular_sim_granularity_ = 0.1;
@@ -46,6 +47,7 @@ vector<vector<GridCell>> pathmap(ROW, vector<GridCell>(COL));
 vector<vector<GridCell>> goalmap(ROW, vector<GridCell>(COL));
 vector<vector<int>> costmap(ROW, vector<int>(COL, 0));
 vector<Dpair> footprint_;
+double footprint_array[4][2] = {{0.12, -0.1}, {0.12, 0.1}, {-0.12, 0.1}, {-0.12, -0.1}}; // (x, y) format
 
 // A Utility Function to check whether given cell (row, col)
 // is a valid cell or not.
@@ -54,6 +56,19 @@ bool isValid(int row, int col)
     // Returns true if row number and column number
     // is in range
     return (row >= 0) && (row < ROW) && (col >= 0) && (col < COL);
+}
+
+void fillFootprint(void)
+{
+    int footprint_len = sizeof(footprint_array) / sizeof(footprint_array[0]);
+    for (int i = 0; i < footprint_len; i++)
+    {
+        Dpair point;
+        point.first = footprint_array[i][1]; //p.first is y coordinate
+        point.second = footprint_array[i][0];
+        footprint_.push_back(point);
+    }
+    return;
 }
 
 bool worldToMap(double wx, double wy, int &mx, int &my)
@@ -134,7 +149,7 @@ double lineCost(int cx0, int cx1, int cy0, int cy1)
     double line_cost = 0.0;
     double point_cost = -1.0;
     
-    for (local_planner::LineIterator line(cx0, cy0, cx1, cy1); line.isValid(); line.advance())
+    for (nsx::LineIterator line(cx0, cy0, cx1, cy1); line.isValid(); line.advance())
     {
         point_cost = pointCost(line.getX(), line.getY());
 
@@ -195,33 +210,29 @@ double footprintCost1(double x_i, double y_i, double theta_i, vector<Dpair>& foo
         {
             return line_cost;
         }
-
-        //we also need to connect the first point in the footprint to the last point
-        //get the cell coord of the last point
-        if (!worldToMap(footprint.back().second, footprint.back().first, x0, y0))
-        {
-            return -3.0;
-        }
-        //get the cell coord of the first point    
-        if (!worldToMap(footprint.front().second, footprint.front().first, x1, y1))
-        {
-            return -3.0;
-        }
-
-        line_cost = lineCost(x0, x1, y0, y1);
-        footprint_cost = max(line_cost, footprint_cost);
-
-        //if there is an obstacle that hits the line... we know that we can return false right away
-        if(line_cost < 0)
-        {
-            return line_cost;
-        }
-
-        return footprint_cost;
-        
     }
-    
-    
+    //we also need to connect the first point in the footprint to the last point
+    //get the cell coord of the last point
+    if (!worldToMap(footprint.back().second, footprint.back().first, x0, y0))
+    {
+        return -3.0;
+    }
+    //get the cell coord of the first point    
+    if (!worldToMap(footprint.front().second, footprint.front().first, x1, y1))
+    {
+        return -3.0;
+    }
+
+    line_cost = lineCost(x0, x1, y0, y1);
+    footprint_cost = max(line_cost, footprint_cost);
+
+    //if there is an obstacle that hits the line... we know that we can return false right away
+    if(line_cost < 0)
+    {
+        return line_cost;
+    }
+
+    return footprint_cost;
 }
 
 // x_i, y_i, theta_i are in world coordiante
@@ -262,6 +273,70 @@ void printGrid(vector<vector<GridCell>> &grid)
         printf("\n");
     }
     printf("\n\n");
+}
+
+
+void visualize_footprint(int row, int col, double x_i, double y_i, double theta_i)
+{
+    char imgGrid[row][col][3];
+    int x0, x1, y0, y1;
+    //orient the footprint
+    vector<Dpair> oriented_footprint;
+
+    for (int i = 0; i < row; i++)
+    {
+        for (int j = 0; j < col; j++)
+        {
+            imgGrid[i][j][0] = 255;
+            imgGrid[i][j][1] = 255;
+            imgGrid[i][j][2] = 255; 
+        }
+    }
+    
+
+    for (int i = 0; i < footprint_.size(); i++)
+    {
+        Dpair new_pt;
+        new_pt.second = x_i + (footprint_[i].second*cos(theta_i) - footprint_[i].first*sin(theta_i));
+        new_pt.first =  y_i + (footprint_[i].second*sin(theta_i) + footprint_[i].first*cos(theta_i));
+        oriented_footprint.push_back(new_pt);
+    }
+
+    //loop through the footprint and mark it in the grid
+    for (int i = 0; i < oriented_footprint.size() - 1; i++)
+    {
+        x0 = oriented_footprint[i].second/resolution_;
+        y0 = oriented_footprint[i].first/resolution_;
+
+        x1 = oriented_footprint[i+1].second/resolution_;
+        y1 = oriented_footprint[i+1].first/resolution_;
+
+        for (nsx::LineIterator line(x0, y0, x1, y1); line.isValid(); line.advance())
+        {
+            imgGrid[line.getY()][line.getX()][0] = 0;
+            imgGrid[line.getY()][line.getX()][1] = 0;
+            imgGrid[line.getY()][line.getX()][2] = 255;
+        }
+    }
+
+    x0 = oriented_footprint.back().second/resolution_;
+    y0 = oriented_footprint.back().first/resolution_;
+
+    x1 = oriented_footprint.front().second/resolution_;
+    y1 = oriented_footprint.front().first/resolution_;
+
+    for (nsx::LineIterator line(x0, y0, x1, y1); line.isValid(); line.advance())
+    {
+        imgGrid[line.getY()][line.getX()][0] = 0;
+        imgGrid[line.getY()][line.getX()][1] = 0;
+        imgGrid[line.getY()][line.getX()][2] = 255;
+    }
+
+    //visualize
+    Mat GridImgMAT(row, col, CV_8UC3, imgGrid);
+    imshow("PIC", GridImgMAT);
+    waitKey(0);
+
 }
 
 void visualize(vector<vector<GridCell>> &grid)
@@ -505,144 +580,149 @@ void setLocalGoal(vector<vector<int>> &costmap, vector<vector<GridCell>> &grid, 
     computeTargetDistance(path_dist_queue, grid, costmap);
 }
 
-void generateTrajectory(
-    double x, double y, double theta,
-    double vx, double vy, double vtheta,
-    double vx_samp, double vy_samp, double vtheta_samp,
-    double acc_x, double acc_y, double acc_theta,
-    double impossible_cost,
-    local_planner::Trajectory &traj)
-{
+// void generateTrajectory(
+//     double x, double y, double theta,
+//     double vx, double vy, double vtheta,
+//     double vx_samp, double vy_samp, double vtheta_samp,
+//     double acc_x, double acc_y, double acc_theta,
+//     double impossible_cost,
+//     Trajectory &traj)
+// {
 
-    double x_i = x;
-    double y_i = y;
-    double theta_i = theta;
+//     double x_i = x;
+//     double y_i = y;
+//     double theta_i = theta;
 
-    double vx_i, vy_i, vtheta_i;
+//     double vx_i, vy_i, vtheta_i;
 
-    vx_i = vx;
-    vy_i = vy;
-    vtheta_i = vtheta;
+//     vx_i = vx;
+//     vy_i = vy;
+//     vtheta_i = vtheta;
 
-    //compute the magnitude of the velocities
-    double vmag = hypot(vx_samp, vy_samp);
+//     //compute the magnitude of the velocities
+//     double vmag = hypot(vx_samp, vy_samp);
 
-    //compute the number of steps we must take along this trajectory to be "safe"
-    int num_steps;
-    num_steps = int(max((vmag * sim_time_) / sim_granularity_, fabs(vtheta_samp) / angular_sim_granularity_) + 0.5);
+//     //compute the number of steps we must take along this trajectory to be "safe"
+//     int num_steps;
+//     num_steps = int(max((vmag * sim_time_) / sim_granularity_, fabs(vtheta_samp) / angular_sim_granularity_) + 0.5);
 
-    //we at least want to take one step... even if we won't move, we want to score our current position
-    if (num_steps == 0)
-    {
-        num_steps = 1;
-    }
+//     //we at least want to take one step... even if we won't move, we want to score our current position
+//     if (num_steps == 0)
+//     {
+//         num_steps = 1;
+//     }
 
-    double dt = sim_time_ / num_steps;
-    double time = 0.0;
+//     double dt = sim_time_ / num_steps;
+//     double time = 0.0;
 
-    //create a potential trajectory
-    traj.resetPoints();
-    traj.xv_ = vx_samp;
-    traj.yv_ = vy_samp;
-    traj.thetav_ = vtheta_samp;
-    traj.cost_ = -1.0;
+//     //create a potential trajectory
+//     traj.resetPoints();
+//     traj.xv_ = vx_samp;
+//     traj.yv_ = vy_samp;
+//     traj.thetav_ = vtheta_samp;
+//     traj.cost_ = -1.0;
 
-    //initialize the costs for the trajectory
-    double path_dist = 0.0;
-    double goal_dist = 0.0;
-    double occ_cost = 0.0;
+//     //initialize the costs for the trajectory
+//     double path_dist = 0.0;
+//     double goal_dist = 0.0;
+//     double occ_cost = 0.0;
 
-    for (int i = 0; i < num_steps; i++)
-    {
-        int cell_x, cell_y;
+//     for (int i = 0; i < num_steps; i++)
+//     {
+//         int cell_x, cell_y;
 
-        if (!worldToMap(x_i, y_i, cell_x, cell_y))
-        {
-            traj.cost_ = -1.0;
-            return;
-        }
+//         if (!worldToMap(x_i, y_i, cell_x, cell_y))
+//         {
+//             traj.cost_ = -1.0;
+//             return;
+//         }
 
-        double footprint_cost = footprintCost(x_i, y_i, theta_i);
+//         double footprint_cost = footprintCost(x_i, y_i, theta_i);
 
-        //if the footprint hits an obstacle this trajectory is invalid
-        if (footprint_cost < 0)
-        {
-            traj.cost_ = -1.0;
-            return;
-        }
+//         //if the footprint hits an obstacle this trajectory is invalid
+//         if (footprint_cost < 0)
+//         {
+//             traj.cost_ = -1.0;
+//             return;
+//         }
 
-        occ_cost = max(max(occ_cost, footprint_cost), (double)costmap[cell_y][cell_x]);
-        path_dist = pathmap[cell_y][cell_x].target_dist;
-        goal_dist = goalmap[cell_y][cell_x].target_dist;
+//         occ_cost = max(max(occ_cost, footprint_cost), (double)costmap[cell_y][cell_x]);
+//         path_dist = pathmap[cell_y][cell_x].target_dist;
+//         goal_dist = goalmap[cell_y][cell_x].target_dist;
 
-        if(impossible_cost <= goal_dist || impossible_cost <= path_dist)
-        {
-            traj.cost_ = -2.0;
-            return;
-        }
+//         if(impossible_cost <= goal_dist || impossible_cost <= path_dist)
+//         {
+//             traj.cost_ = -2.0;
+//             return;
+//         }
 
-        //the point is legal... add it to the trajectory
-        traj.addPoint(x_i, y_i, theta_i);
+//         //the point is legal... add it to the trajectory
+//         traj.addPoint(x_i, y_i, theta_i);
 
-        //calculate velocities
-        vx_i = computeNewVelocity(vx_samp, vx_i, acc_x, dt);
-        vy_i = computeNewVelocity(vy_samp, vy_i, acc_y, dt);
-        vtheta_i = computeNewVelocity(vtheta_samp, vtheta_i, acc_theta, dt);
+//         //calculate velocities
+//         vx_i = computeNewVelocity(vx_samp, vx_i, acc_x, dt);
+//         vy_i = computeNewVelocity(vy_samp, vy_i, acc_y, dt);
+//         vtheta_i = computeNewVelocity(vtheta_samp, vtheta_i, acc_theta, dt);
 
-        //calculate positions
-        x_i = computeNewXPosition(x_i, vx_i, vy_i, theta_i, dt);
-        y_i = computeNewYPosition(y_i, vx_i, vy_i, theta_i, dt);
-        theta_i = computeNewThetaPosition(theta_i, vtheta_i, dt);
+//         //calculate positions
+//         x_i = computeNewXPosition(x_i, vx_i, vy_i, theta_i, dt);
+//         y_i = computeNewYPosition(y_i, vx_i, vy_i, theta_i, dt);
+//         theta_i = computeNewThetaPosition(theta_i, vtheta_i, dt);
 
-        time += dt;
-    }
+//         time += dt;
+//     }
 
-    traj.cost_ = path_distance_bias_ * path_dist + goal_dist * goal_distance_bias_ + occdist_scale_ * occ_cost;
-}
+//     traj.cost_ = path_distance_bias_ * path_dist + goal_dist * goal_distance_bias_ + occdist_scale_ * occ_cost;
+// }
 
 int main()
 {
-    costmap[5][5] = OBSTACLE_COST;
-    costmap[5][6] = OBSTACLE_COST;
-    costmap[6][5] = OBSTACLE_COST;
-    costmap[5][7] = OBSTACLE_COST;
-    costmap[7][5] = OBSTACLE_COST;
-    costmap[5][8] = OBSTACLE_COST;
+    // costmap[5][5] = OBSTACLE_COST;
+    // costmap[5][6] = OBSTACLE_COST;
+    // costmap[6][5] = OBSTACLE_COST;
+    // costmap[5][7] = OBSTACLE_COST;
+    // costmap[7][5] = OBSTACLE_COST;
+    // costmap[5][8] = OBSTACLE_COST;
 
-    initializeGrid(goalmap);
-    initializeGrid(pathmap);
+    // initializeGrid(goalmap);
+    // initializeGrid(pathmap);
 
-    int ix = 3, iy = 4;
+    // int ix = 3, iy = 4;
+
+    // // //for goalmap
+    // // GridCell& c_cell = goalmap[iy][ix];
+    // // c_cell.target_dist = 0;
+    // // c_cell.target_mark = true;
+
+    // // queue<GridCell*> goal_dist_queue;
+    // // goal_dist_queue.push(&c_cell);
+    // // computeTargetDistance(goal_dist_queue, goalmap, costmap);
+
+    // // printGrid(goalmap);
+    // // visualize(goalmap);
+
+    // //for pathmap
+    // vector<Pair> global_path;
+    // global_path.push_back(make_pair(iy, ix));
+    // global_path.push_back(make_pair(iy - 1, ix + 1));
+    // global_path.push_back(make_pair(iy - 2, ix + 2));
+    // global_path.push_back(make_pair(iy - 3, ix + 3));
+    // global_path.push_back(make_pair(iy - 4, ix + 4));
+    // global_path.push_back(make_pair(iy - 5, ix + 5));
+
+    // setTargetCells(costmap, pathmap, global_path);
+    // printGrid(pathmap);
+    // visualize(pathmap);
 
     // //for goalmap
-    // GridCell& c_cell = goalmap[iy][ix];
-    // c_cell.target_dist = 0;
-    // c_cell.target_mark = true;
-
-    // queue<GridCell*> goal_dist_queue;
-    // goal_dist_queue.push(&c_cell);
-    // computeTargetDistance(goal_dist_queue, goalmap, costmap);
-
+    // setLocalGoal(costmap, goalmap, global_path);
     // printGrid(goalmap);
     // visualize(goalmap);
 
-    //for pathmap
-    vector<Pair> global_path;
-    global_path.push_back(make_pair(iy, ix));
-    global_path.push_back(make_pair(iy - 1, ix + 1));
-    global_path.push_back(make_pair(iy - 2, ix + 2));
-    global_path.push_back(make_pair(iy - 3, ix + 3));
-    global_path.push_back(make_pair(iy - 4, ix + 4));
-    global_path.push_back(make_pair(iy - 5, ix + 5));
 
-    setTargetCells(costmap, pathmap, global_path);
-    printGrid(pathmap);
-    visualize(pathmap);
-
-    //for goalmap
-    setLocalGoal(costmap, goalmap, global_path);
-    printGrid(goalmap);
-    visualize(goalmap);
+    //visualize footprint
+    fillFootprint();
+    visualize_footprint(600, 600, 3, 3, M_PI_4);
 
     return 0;
 }

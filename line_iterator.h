@@ -31,8 +31,7 @@
 
 #include <stdlib.h>
 
-namespace local_planner
-{
+namespace nsx{
 
 /** An iterator implementing Bresenham Ray-Tracing. */
 class LineIterator
@@ -138,6 +137,5 @@ private:
   int den_, num_, numadd_, numpixels_;
 };
 
-} // end namespace local_planner
-
+}
 #endif // LINE_ITERATOR_H
