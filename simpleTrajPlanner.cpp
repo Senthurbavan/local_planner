@@ -14,9 +14,9 @@
 using namespace cv;
 using namespace std;
 
-static const unsigned int ROW = 10;   //y
-static const unsigned int COL = 10;   //x
-static const unsigned int SCALE = 20; //xvvv
+static const unsigned int ROW = 300;   //y
+static const unsigned int COL = 300;   //x
+static const unsigned int SCALE = 2; //xvvv
 static const unsigned int UNREACHABLE_COST = ROW * COL + 1;
 static const unsigned char OBSTACLE_COST = 127;
 
@@ -47,7 +47,7 @@ vector<vector<GridCell>> pathmap(ROW, vector<GridCell>(COL));
 vector<vector<GridCell>> goalmap(ROW, vector<GridCell>(COL));
 vector<vector<int>> costmap(ROW, vector<int>(COL, 0));
 vector<Dpair> footprint_;
-double footprint_array[4][2] = {{0.12, -0.1}, {0.12, 0.1}, {-0.12, 0.1}, {-0.12, -0.1}}; // (x, y) format
+double footprint_array[4][2] = {{0.1, -0.12}, {0.1, 0.12}, {-0.1, 0.12}, {-0.1, -0.12}}; // (x, y) format
 
 // A Utility Function to check whether given cell (row, col)
 // is a valid cell or not.
@@ -275,6 +275,122 @@ void printGrid(vector<vector<GridCell>> &grid)
     printf("\n\n");
 }
 
+//visualize trajectory and footprint on top of the costmap
+void visualize_traj(double x_i, double y_i, double theta_i, nsx::Trajectory &traj){
+    char imgGrid[ROW][COL][3];
+    char imgGridScaled[ROW * SCALE][COL * SCALE][3];
+
+    int x0, x1, y0, y1;
+    //orient the footprint
+    vector<Dpair> oriented_footprint;
+
+    // color
+    // obs & inflation : blue
+    // freespace : white
+    // footprint : black
+    // trajectory: blue (red if collision)
+
+    for (int i = 0; i < ROW; i++)
+    {
+        for (int j = 0; j < COL; j++)
+        {
+            int c = costmap[i][j];
+
+            // free space
+            if (c == 0)
+            {
+                imgGrid[i][j][0] = 255;
+                imgGrid[i][j][1] = 255;
+                imgGrid[i][j][2] = 255;
+            }
+            // obs & inflation
+            else
+            {
+                imgGrid[i][j][0] = 255;
+                imgGrid[i][j][1] = 255 - c * (int)(255/OBSTACLE_COST);
+                imgGrid[i][j][2] = 255 - c * (int)(255/OBSTACLE_COST);
+            }
+        }
+        
+    }
+
+    // fill footprint
+    for (int i = 0; i < footprint_.size(); i++)
+    {
+        Dpair new_pt;
+        new_pt.second = x_i + (footprint_[i].second*cos(theta_i) - footprint_[i].first*sin(theta_i));
+        new_pt.first =  y_i + (footprint_[i].second*sin(theta_i) + footprint_[i].first*cos(theta_i));
+        oriented_footprint.push_back(new_pt);
+    }
+
+        //loop through the footprint and mark it in the grid
+    for (int i = 0; i < oriented_footprint.size() - 1; i++)
+    {
+        x0 = oriented_footprint[i].second/resolution_;
+        y0 = oriented_footprint[i].first/resolution_;
+
+        x1 = oriented_footprint[i+1].second/resolution_;
+        y1 = oriented_footprint[i+1].first/resolution_;
+
+        for (nsx::LineIterator line(x0, y0, x1, y1); line.isValid(); line.advance())
+        {
+            imgGrid[line.getY()][line.getX()][0] = 0;
+            imgGrid[line.getY()][line.getX()][1] = 0;
+            imgGrid[line.getY()][line.getX()][2] = 0;
+        }
+    }
+
+    x0 = oriented_footprint.back().second/resolution_;
+    y0 = oriented_footprint.back().first/resolution_;
+
+    x1 = oriented_footprint.front().second/resolution_;
+    y1 = oriented_footprint.front().first/resolution_;
+
+    for (nsx::LineIterator line(x0, y0, x1, y1); line.isValid(); line.advance())
+    {
+        imgGrid[line.getY()][line.getX()][0] = 0;
+        imgGrid[line.getY()][line.getX()][1] = 0;
+        imgGrid[line.getY()][line.getX()][2] = 0;
+    }
+
+    // fill trajectory
+    double x, y, th;
+    int x_id, y_id;
+    for (unsigned int i = 0; i < traj.getPointsSize(); i++)
+    {
+        traj.getPoint(i, x, y, th);
+        x_id = (int)(x/resolution_);
+        y_id = (int)(y/resolution_);
+        
+        imgGrid[y_id][x_id][0] = 255;
+        imgGrid[y_id][x_id][1] = 0;
+        imgGrid[y_id][x_id][2] = 0;
+
+    }
+    
+    
+
+    //scaling
+    for (int i = 0; i < ROW; i++)
+    {
+        for (int i_s = 0; i_s < SCALE; i_s++)
+        {
+            for (int j = 0; j < COL; j++)
+            {
+                for (int j_s = 0; j_s < SCALE; j_s++)
+                {
+                    imgGridScaled[i * SCALE + i_s][j * SCALE + j_s][0] = imgGrid[i][j][0];
+                    imgGridScaled[i * SCALE + i_s][j * SCALE + j_s][1] = imgGrid[i][j][1];
+                    imgGridScaled[i * SCALE + i_s][j * SCALE + j_s][2] = imgGrid[i][j][2];
+                }
+            }
+        }
+    }
+
+    Mat inflatedGridImg(ROW * SCALE, COL * SCALE, CV_8UC3, imgGridScaled);
+    imshow("PIC", inflatedGridImg);
+    waitKey(0);
+}
 
 void visualize_footprint(int row, int col, double x_i, double y_i, double theta_i)
 {
@@ -720,9 +836,42 @@ int main()
     // visualize(goalmap);
 
 
-    //visualize footprint
     fillFootprint();
-    visualize_footprint(600, 600, 3, 3, M_PI_4);
+    initializeGrid(goalmap);
+    initializeGrid(pathmap);
+
+    //for pathmap
+    vector<Pair> global_path;
+    nsx::Trajectory traj;
+
+    int ix = 150;
+    int iy = 150;
+    for(int i = 0 ; i < 155 ; i++){
+        global_path.push_back(make_pair(iy - i, ix + i));
+    }
+
+    setTargetCells(costmap, pathmap, global_path);
+    setLocalGoal(costmap, goalmap, global_path);
+
+    double x = 1.5;
+    double y = 1.5;
+    double th = M_PI_4;
+    double vx = 0.2;
+    double vy = 0;
+    double vth = 0;
+    double vsx = 1;
+    double vsy = 0;
+    double vsth = -1;
+    double ax = 1;
+    double ay = 0;
+    double ath = 1;
+
+    generateTrajectory(x, y, th, vx, vy, vth, vsx, vsy, vsth, ax, ay, ath, UNREACHABLE_COST-1, traj);
+
+    visualize_traj(x, y, th, traj);
+
+
+    
 
     return 0;
 }
