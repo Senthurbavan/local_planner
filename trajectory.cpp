@@ -31,9 +31,9 @@
  *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  *********************************************************************/
-#include <trajectory.h>
+#include "trajectory.h"
 
-namespace local_planner {
+namespace nsx {
   Trajectory::Trajectory()
     : xv_(0.0), yv_(0.0), thetav_(0.0), cost_(-1.0)
   {

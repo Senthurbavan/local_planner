@@ -580,100 +580,100 @@ void setLocalGoal(vector<vector<int>> &costmap, vector<vector<GridCell>> &grid, 
     computeTargetDistance(path_dist_queue, grid, costmap);
 }
 
-// void generateTrajectory(
-//     double x, double y, double theta,
-//     double vx, double vy, double vtheta,
-//     double vx_samp, double vy_samp, double vtheta_samp,
-//     double acc_x, double acc_y, double acc_theta,
-//     double impossible_cost,
-//     Trajectory &traj)
-// {
+void generateTrajectory(
+    double x, double y, double theta,
+    double vx, double vy, double vtheta,
+    double vx_samp, double vy_samp, double vtheta_samp,
+    double acc_x, double acc_y, double acc_theta,
+    double impossible_cost,
+    nsx::Trajectory &traj)
+{
 
-//     double x_i = x;
-//     double y_i = y;
-//     double theta_i = theta;
+    double x_i = x;
+    double y_i = y;
+    double theta_i = theta;
 
-//     double vx_i, vy_i, vtheta_i;
+    double vx_i, vy_i, vtheta_i;
 
-//     vx_i = vx;
-//     vy_i = vy;
-//     vtheta_i = vtheta;
+    vx_i = vx;
+    vy_i = vy;
+    vtheta_i = vtheta;
 
-//     //compute the magnitude of the velocities
-//     double vmag = hypot(vx_samp, vy_samp);
+    //compute the magnitude of the velocities
+    double vmag = hypot(vx_samp, vy_samp);
 
-//     //compute the number of steps we must take along this trajectory to be "safe"
-//     int num_steps;
-//     num_steps = int(max((vmag * sim_time_) / sim_granularity_, fabs(vtheta_samp) / angular_sim_granularity_) + 0.5);
+    //compute the number of steps we must take along this trajectory to be "safe"
+    int num_steps;
+    num_steps = int(max((vmag * sim_time_) / sim_granularity_, fabs(vtheta_samp) / angular_sim_granularity_) + 0.5);
 
-//     //we at least want to take one step... even if we won't move, we want to score our current position
-//     if (num_steps == 0)
-//     {
-//         num_steps = 1;
-//     }
+    //we at least want to take one step... even if we won't move, we want to score our current position
+    if (num_steps == 0)
+    {
+        num_steps = 1;
+    }
 
-//     double dt = sim_time_ / num_steps;
-//     double time = 0.0;
+    double dt = sim_time_ / num_steps;
+    double time = 0.0;
 
-//     //create a potential trajectory
-//     traj.resetPoints();
-//     traj.xv_ = vx_samp;
-//     traj.yv_ = vy_samp;
-//     traj.thetav_ = vtheta_samp;
-//     traj.cost_ = -1.0;
+    //create a potential trajectory
+    traj.resetPoints();
+    traj.xv_ = vx_samp;
+    traj.yv_ = vy_samp;
+    traj.thetav_ = vtheta_samp;
+    traj.cost_ = -1.0;
 
-//     //initialize the costs for the trajectory
-//     double path_dist = 0.0;
-//     double goal_dist = 0.0;
-//     double occ_cost = 0.0;
+    //initialize the costs for the trajectory
+    double path_dist = 0.0;
+    double goal_dist = 0.0;
+    double occ_cost = 0.0;
 
-//     for (int i = 0; i < num_steps; i++)
-//     {
-//         int cell_x, cell_y;
+    for (int i = 0; i < num_steps; i++)
+    {
+        int cell_x, cell_y;
 
-//         if (!worldToMap(x_i, y_i, cell_x, cell_y))
-//         {
-//             traj.cost_ = -1.0;
-//             return;
-//         }
+        if (!worldToMap(x_i, y_i, cell_x, cell_y))
+        {
+            traj.cost_ = -1.0;
+            return;
+        }
 
-//         double footprint_cost = footprintCost(x_i, y_i, theta_i);
+        double footprint_cost = footprintCost(x_i, y_i, theta_i);
 
-//         //if the footprint hits an obstacle this trajectory is invalid
-//         if (footprint_cost < 0)
-//         {
-//             traj.cost_ = -1.0;
-//             return;
-//         }
+        //if the footprint hits an obstacle this trajectory is invalid
+        if (footprint_cost < 0)
+        {
+            traj.cost_ = -1.0;
+            return;
+        }
 
-//         occ_cost = max(max(occ_cost, footprint_cost), (double)costmap[cell_y][cell_x]);
-//         path_dist = pathmap[cell_y][cell_x].target_dist;
-//         goal_dist = goalmap[cell_y][cell_x].target_dist;
+        occ_cost = max(max(occ_cost, footprint_cost), (double)costmap[cell_y][cell_x]);
+        path_dist = pathmap[cell_y][cell_x].target_dist;
+        goal_dist = goalmap[cell_y][cell_x].target_dist;
 
-//         if(impossible_cost <= goal_dist || impossible_cost <= path_dist)
-//         {
-//             traj.cost_ = -2.0;
-//             return;
-//         }
+        if(impossible_cost <= goal_dist || impossible_cost <= path_dist)
+        {
+            traj.cost_ = -2.0;
+            return;
+        }
 
-//         //the point is legal... add it to the trajectory
-//         traj.addPoint(x_i, y_i, theta_i);
+        //the point is legal... add it to the trajectory
+        traj.addPoint(x_i, y_i, theta_i);
 
-//         //calculate velocities
-//         vx_i = computeNewVelocity(vx_samp, vx_i, acc_x, dt);
-//         vy_i = computeNewVelocity(vy_samp, vy_i, acc_y, dt);
-//         vtheta_i = computeNewVelocity(vtheta_samp, vtheta_i, acc_theta, dt);
+        //calculate velocities
+        vx_i = computeNewVelocity(vx_samp, vx_i, acc_x, dt);
+        vy_i = computeNewVelocity(vy_samp, vy_i, acc_y, dt);
+        vtheta_i = computeNewVelocity(vtheta_samp, vtheta_i, acc_theta, dt);
 
-//         //calculate positions
-//         x_i = computeNewXPosition(x_i, vx_i, vy_i, theta_i, dt);
-//         y_i = computeNewYPosition(y_i, vx_i, vy_i, theta_i, dt);
-//         theta_i = computeNewThetaPosition(theta_i, vtheta_i, dt);
+        //calculate positions
+        x_i = computeNewXPosition(x_i, vx_i, vy_i, theta_i, dt);
+        y_i = computeNewYPosition(y_i, vx_i, vy_i, theta_i, dt);
+        theta_i = computeNewThetaPosition(theta_i, vtheta_i, dt);
 
-//         time += dt;
-//     }
+        time += dt;
+    }
 
-//     traj.cost_ = path_distance_bias_ * path_dist + goal_dist * goal_distance_bias_ + occdist_scale_ * occ_cost;
-// }
+    traj.cost_ = path_distance_bias_ * path_dist + goal_dist * goal_distance_bias_ + occdist_scale_ * occ_cost;
+}
 
 int main()
 {
