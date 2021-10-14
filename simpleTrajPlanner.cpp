@@ -20,6 +20,8 @@ static const unsigned int SCALE = 2; //xvvv
 static const unsigned int UNREACHABLE_COST = ROW * COL + 1;
 static const unsigned char OBSTACLE_COST = 127;
 
+static const unsigned char PADDING = 12;
+
 double resolution_ = 0.01;
 double sim_time_ = 2.0;
 double sim_granularity_ = 0.1;
@@ -45,6 +47,7 @@ struct GridCell
 
 vector<vector<GridCell>> pathmap(ROW, vector<GridCell>(COL));
 vector<vector<GridCell>> goalmap(ROW, vector<GridCell>(COL));
+vector<vector<int>> obsGrid(ROW, vector<int>(COL, 1));
 vector<vector<int>> costmap(ROW, vector<int>(COL, 0));
 vector<Dpair> footprint_;
 double footprint_array[4][2] = {{0.1, -0.12}, {0.1, 0.12}, {-0.1, 0.12}, {-0.1, -0.12}}; // (x, y) format
@@ -276,7 +279,7 @@ void printGrid(vector<vector<GridCell>> &grid)
 }
 
 //visualize trajectory and footprint on top of the costmap
-void visualize_traj(double x_i, double y_i, double theta_i, nsx::Trajectory &traj){
+void visualize_traj(double x_i, double y_i, double theta_i, nsx::Trajectory &traj, vector<Pair> &global_path){
     char imgGrid[ROW][COL][3];
     char imgGridScaled[ROW * SCALE][COL * SCALE][3];
 
@@ -288,7 +291,8 @@ void visualize_traj(double x_i, double y_i, double theta_i, nsx::Trajectory &tra
     // obs & inflation : blue
     // freespace : white
     // footprint : black
-    // trajectory: blue (red if collision)
+    // global_path : green + blue
+    // trajectory: green (red if collision)
 
     for (int i = 0; i < ROW; i++)
     {
@@ -353,6 +357,21 @@ void visualize_traj(double x_i, double y_i, double theta_i, nsx::Trajectory &tra
         imgGrid[line.getY()][line.getX()][2] = 0;
     }
 
+    // fill global path
+    for (int i = 0; i < global_path.size(); i++)
+    {
+        int xi = global_path[i].second;
+        int yi = global_path[i].first;
+
+        if (isValid(yi, xi))
+        {
+            imgGrid[yi][xi][0] = 255;
+            imgGrid[yi][xi][1] = 255;
+            imgGrid[yi][xi][2] = 0;
+        }
+    }
+    
+
     // fill trajectory
     double x, y, th;
     int x_id, y_id;
@@ -362,14 +381,22 @@ void visualize_traj(double x_i, double y_i, double theta_i, nsx::Trajectory &tra
         x_id = (int)(x/resolution_);
         y_id = (int)(y/resolution_);
         
-        imgGrid[y_id][x_id][0] = 255;
-        imgGrid[y_id][x_id][1] = 0;
-        imgGrid[y_id][x_id][2] = 0;
+        if (traj.cost_ < 0)
+        {
+            imgGrid[y_id][x_id][0] = 0;
+            imgGrid[y_id][x_id][1] = 0;
+            imgGrid[y_id][x_id][2] = 255;
+        }
+        else
+        {
+            imgGrid[y_id][x_id][0] = 0;
+            imgGrid[y_id][x_id][1] = 200;
+            imgGrid[y_id][x_id][2] = 0;
+        }
+        
+        
 
     }
-    
-    
-
     //scaling
     for (int i = 0; i < ROW; i++)
     {
@@ -388,7 +415,9 @@ void visualize_traj(double x_i, double y_i, double theta_i, nsx::Trajectory &tra
     }
 
     Mat inflatedGridImg(ROW * SCALE, COL * SCALE, CV_8UC3, imgGridScaled);
-    imshow("PIC", inflatedGridImg);
+    char buff[100];
+    sprintf(buff, "Trajectory Cost  %3.2f",traj.cost_);
+    imshow(buff, inflatedGridImg);
     waitKey(0);
 }
 
@@ -460,6 +489,23 @@ void visualize(vector<vector<GridCell>> &grid)
     char imgGrid[ROW][COL][3];
     char imgGridScaled[ROW * SCALE][COL * SCALE][3];
     double scaled_dist;
+    double max_cost = 0;
+    double cost_t;
+
+    for (int i = 0; i < ROW; i++)
+    {
+        for (int j = 0; j < COL; j++)
+        {
+            cost_t = grid[i][j].target_dist;
+            if ((cost_t < UNREACHABLE_COST - 1) &&(cost_t > max_cost))
+            {
+                max_cost = cost_t;
+            }
+            
+        }
+        
+    }
+    
 
     for (int i = 0; i < ROW; i++)
     {
@@ -486,7 +532,7 @@ void visualize(vector<vector<GridCell>> &grid)
             }
             else
             {
-                scaled_dist = (255.0 / (17.0)) * c.target_dist;
+                scaled_dist = (255.0 / (300)) * c.target_dist;
                 imgGrid[i][j][0] = (char)scaled_dist;
                 imgGrid[i][j][1] = 255;
                 imgGrid[i][j][2] = (char)scaled_dist;
@@ -530,6 +576,46 @@ void initializeGrid(vector<vector<GridCell>> &grid)
             grid[i][j].cy = i;
             grid[i][j].target_dist = UNREACHABLE_COST;
             grid[i][j].target_mark = false;
+        }
+    }
+}
+
+void buildMap(vector<vector<int>>&obsGrid, vector<vector<int>>&inflateGrid)
+{
+    for (int xN = 0; xN < COL; xN++)
+    {
+        for (int yN = 0; yN < ROW; yN++)
+        {
+            if (obsGrid[yN][xN] == 0)
+            {
+                int xlow = xN - 2 * PADDING;
+                int xhigh = xN + 2 * PADDING;
+                int ylow = yN - 2 * PADDING;
+                int yhigh = yN + 2 * PADDING;
+
+                inflateGrid[yN][xN] = 255;
+
+                for (int a = xlow; a < xhigh; a++)
+                {
+                    for (int b = ylow; b < yhigh; b++)
+                    {
+                        if (isValid(b, a))
+                        {
+                            int d = std::max(std::abs(xN - a), std::abs(yN - b));
+                            double cost_t = (-127.0 / PADDING) * (d - PADDING) + 127;
+
+                            if ((d <= PADDING) && !((b == yN) && (a == xN)))
+                            {
+                                inflateGrid[b][a] = 127;
+                            }
+                            else if (d <= 2 * PADDING)
+                            {
+                                inflateGrid[b][a] = std::max(inflateGrid[b][a], (int)cost_t);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -840,6 +926,9 @@ int main()
     initializeGrid(goalmap);
     initializeGrid(pathmap);
 
+    obsGrid[200][200] = 0;
+    buildMap(obsGrid, costmap);
+
     //for pathmap
     vector<Pair> global_path;
     nsx::Trajectory traj;
@@ -859,18 +948,18 @@ int main()
     double vx = 0.2;
     double vy = 0;
     double vth = 0;
-    double vsx = 1;
+    double vsx = 0.5;
     double vsy = 0;
-    double vsth = -1;
+    double vsth = -1.0;
     double ax = 1;
     double ay = 0;
-    double ath = 1;
+    double ath = M_PI;
 
     generateTrajectory(x, y, th, vx, vy, vth, vsx, vsy, vsth, ax, ay, ath, UNREACHABLE_COST-1, traj);
 
-    visualize_traj(x, y, th, traj);
+    visualize_traj(x, y, th, traj, global_path);
 
-
+    visualize(pathmap);
     
 
     return 0;
